@@ -5,13 +5,13 @@ import requests
 # Using the last 5 Messages as context, and the system with message for the first message.
 
 class LlamaSimpleAPI:
-    messages_archive = []
-
     def __init__(self, sysprompt, url, model):
         self.sysprompt = sysprompt
         self.url = url
         self.url_chat = f"{url}/v1/chat/completions"
         self.model = model
+        self.messages_archive = []
+        self.context = ""
         self.check_api()
         logging.info(f"LlamaSimpleAPI initialized:\n model: {model} \n url: {url}")
 
@@ -31,28 +31,22 @@ class LlamaSimpleAPI:
             return False
     
     def set_context(self, context):
-        self.messages_archive = []
-        self.messages_archive.append({
-            "role": "system",
-            "content": context,
-        })
+        if context:
+            self.context = context
+        else:
+            self.context = ""
 
     def get_payload(self, user_text,temperature=0.1, max_tokens=750):
-        messages_archive_payload = []
-        i = 0
-        while i < 5:
-            if len(self.messages_archive) - 1 - i < 0:
-                break
-            messages_archive_payload.append({
-                "role": self.messages_archive[-1 - i]["role"],
-                "content": self.messages_archive[-1 - i]["content"],
-            })
-            i += 1
+        messages_archive_payload = self.messages_archive[-5:]
+        system_content = self.sysprompt
+        if self.context:
+            system_content = f"{self.sysprompt}\n\nContext:\n{self.context}"
 
         messages_to_send = [
-            {"role": "system", "content": self.sysprompt},
-            {"role": "user", "content": user_text}
-        ] + messages_archive_payload
+            {"role": "system", "content": system_content},
+            *messages_archive_payload,
+            {"role": "user", "content": user_text},
+        ]
         
         return {
             "model": self.model,
