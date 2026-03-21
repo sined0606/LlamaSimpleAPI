@@ -1,20 +1,123 @@
 import logging
 import requests
+import sentencepiece as spm
+
+sp = spm.SentencePieceProcessor()
+sp.load("tokenizer.model")
+
+
 
 # A simple API wrapper for Llama CPP.
 # Using the last 5 Messages as context, and the system with message for the first message.
 
 class LlamaSimpleAPI:
-    def __init__(self, sysprompt, url, model):
+    
+    def __init__(self, sysprompt, url, model,sys_max_tokens=2048):
         self.sysprompt = sysprompt
         self.url = url
         self.url_chat = f"{url}/v1/chat/completions"
         self.model = model
+        self.sys_max_tokens = sys_max_tokens
         self.messages_archive = []
         self.context = ""
+        self.models_info = None
+        self.models = []
+        self.models_data = []
+        self.selected_model_info = {}
+        self.selected_model_data = {}
+        self.model_name = ""
+        self.model_id = ""
+        self.model_object = ""
+        self.model_created = None
+        self.model_owned_by = ""
+        self.model_type = ""
+        self.model_description = ""
+        self.model_tags = []
+        self.model_capabilities = []
+        self.model_parameters = ""
+        self.model_modified_at = ""
+        self.model_size = ""
+        self.model_digest = ""
+        self.model_parent = ""
+        self.model_format = ""
+        self.model_family = ""
+        self.model_families = []
+        self.model_parameter_size = ""
+        self.model_quantization_level = ""
+        self.model_meta = {}
+        self.model_vocab_type = None
+        self.model_vocab_size = None
+        self.model_context_train = None
+        self.model_embedding_size = None
+        self.model_parameter_count = None
+        self.model_file_size = None
         self.check_api()
-        logging.info(f"LlamaSimpleAPI initialized:\n model: {model} \n url: {url}")
+        self.get_model_info()
 
+        logging.info(f"LlamaSimpleAPI initialized:\n model: {model} \n url: {url}")
+    
+    def get_model_info(self):
+        try:
+            response = requests.get(f"{self.url}/v1/models", timeout=10)
+            if response.ok:
+                models_info = response.json()
+                self.models_info = models_info
+                self.models = models_info.get("models", [])
+                self.models_data = models_info.get("data", [])
+
+                selected_model_info = next(
+                    (item for item in self.models if item.get("model") == self.model or item.get("name") == self.model),
+                    {},
+                )
+                selected_model_data = next(
+                    (item for item in self.models_data if item.get("id") == self.model),
+                    {},
+                )
+
+                details = selected_model_info.get("details", {})
+                meta = selected_model_data.get("meta", {})
+
+                self.selected_model_info = selected_model_info
+                self.selected_model_data = selected_model_data
+                self.model_name = selected_model_info.get("name", "")
+                self.model_id = selected_model_data.get("id", self.model)
+                self.model_object = selected_model_data.get("object", "")
+                self.model_created = selected_model_data.get("created")
+                self.model_owned_by = selected_model_data.get("owned_by", "")
+                self.model_type = selected_model_info.get("type", "")
+                self.model_description = selected_model_info.get("description", "")
+                self.model_tags = selected_model_info.get("tags", [])
+                self.model_capabilities = selected_model_info.get("capabilities", [])
+                self.model_parameters = selected_model_info.get("parameters", "")
+                self.model_modified_at = selected_model_info.get("modified_at", "")
+                self.model_size = selected_model_info.get("size", "")
+                self.model_digest = selected_model_info.get("digest", "")
+                self.model_parent = details.get("parent_model", "")
+                self.model_format = details.get("format", "")
+                self.model_family = details.get("family", "")
+                self.model_families = details.get("families", [])
+                self.model_parameter_size = details.get("parameter_size", "")
+                self.model_quantization_level = details.get("quantization_level", "")
+                self.model_meta = meta
+                self.model_vocab_type = meta.get("vocab_type")
+                self.model_vocab_size = meta.get("n_vocab")
+                self.model_context_train = meta.get("n_ctx_train")
+                self.model_embedding_size = meta.get("n_embd")
+                self.model_parameter_count = meta.get("n_params")
+                self.model_file_size = meta.get("size")
+
+                logging.info("Available models: %s", models_info)
+                return models_info
+            else:
+                logging.error(f"Failed to get model info. HTTP status: {response.status_code}")
+                return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error connecting to Llama API: {e}")
+            return None
+    
+    def count_tokens(self, payload):
+        text = " ".join([msg["content"] for msg in payload["messages"]])
+        return len(sp.encode(text))
 
     def check_api(self):
         try:
@@ -52,12 +155,42 @@ class LlamaSimpleAPI:
             "model": self.model,
             "messages": messages_to_send,
             "temperature": temperature,
-            "max_tokens": max_tokens,
         }
+
+    def chunking_payload(self, payload, max_tokens):
+        chunk_overhead = 500
+        prompt_chunking = "The following context is chunked into parts. please make a summery of the content for future use. " \
+                        "If the content is not relevant to the question, please ignore it. the summery choud cut the irrelevant part and keep the relevant part. " \
+                        "the summery should be concise and only include the relevant information. the summery should be in the format of a list of bullet points. " \
+                        "the summry should be in english"
+
+        # Create a single string of all messages content with role tags to preserve the structure
+        all_content = " ".join([f'{msg["role"]}: {msg["content"]}' for msg in payload["messages"]])
+        n_chunks = (self.count_tokens(payload) // (self.sys_max_tokens - chunk_overhead) + 1)
+        number_of_chars = len(all_content)
+        chars_per_chunk = number_of_chars // n_chunks
+        logging.info(f"Chunking payload into {n_chunks} chunks, each with approximately {chars_per_chunk} characters.")
+        chunked_contents = []
+        for i in range(n_chunks):
+            logging.info(f"Processing chunk {i+1}/{n_chunks}")
+            internal_api = LlamaSimpleAPI(self.sysprompt, self.url, self.model, self.sys_max_tokens)
+            chunked_content = all_content[i*chars_per_chunk:(i+1)*chars_per_chunk]
+            internal_api.set_context(chunked_content)
+            answered_chunk = internal_api.ask(prompt_chunking, temperature=0.1, max_tokens=chunk_overhead-100)
+            chunked_contents.append(answered_chunk)
+
+        self.messages_archive = []
+        new_context = "\n".join(chunked_contents)
+        self.set_context(new_context)
 
     def ask(self, user_text, temperature=0.1, max_tokens=750) -> str:
         self.check_api()   
         payload = self.get_payload(user_text, temperature, max_tokens)
+        if self.count_tokens(payload) > max_tokens:
+            logging.info("Payload token count exceeds max_tokens, truncating message history.")
+            self.chunking_payload(payload, max_tokens)
+            payload = self.get_payload(user_text, temperature, max_tokens)
+
         timeout_time = len(user_text) * 0.1 + 300
         response = requests.post(self.url_chat, json=payload, timeout=timeout_time)
         logging.info("POST request url: %s", self.url_chat.strip())
