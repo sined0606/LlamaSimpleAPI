@@ -1,9 +1,9 @@
 import logging
+import os
+from pathlib import Path
 import requests
 import sentencepiece as spm
 
-sp = spm.SentencePieceProcessor()
-sp.load("tokenizer.model")
 
 
 
@@ -117,7 +117,12 @@ class LlamaSimpleAPI:
     
     def count_tokens(self, payload):
         text = " ".join([msg["content"] for msg in payload["messages"]])
-        return len(sp.encode(text))
+        tokenizer = spm.SentencePieceProcessor()
+        if tokenizer is not None:
+            return len(tokenizer.encode(text))
+
+        # Rough fallback to avoid crashing when the tokenizer model is unavailable.
+        return max(1, len(text) // 4)
 
     def check_api(self):
         try:
