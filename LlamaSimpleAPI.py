@@ -204,9 +204,21 @@ class LlamaSimpleAPI:
 
     def ask(self, user_text, temperature=0.1, max_tokens=750) -> str:
         self.check_api()   
+<<<<<<< HEAD
         payload = self.get_payload_with_archive(user_text, temperature, max_tokens)
         if self.count_tokens(payload) > max_tokens:
             logging.info("Payload token count exceeds max_tokens, truncating message history.")
+=======
+        payload = self.get_payload(user_text, temperature, max_tokens)
+        prompt_token_count = self.count_tokens(payload)
+        available_prompt_tokens = max(1, self.sys_max_tokens - int(max_tokens))
+        if prompt_token_count > available_prompt_tokens:
+            logging.info(
+                "Payload token count %s exceeds available prompt budget %s, truncating context.",
+                prompt_token_count,
+                available_prompt_tokens,
+            )
+>>>>>>> 2c98917 (reinforce ask funktion)
             self.chunking_payload(payload, max_tokens)
             payload = self.get_payload_with_archive(user_text, temperature, max_tokens)
 
