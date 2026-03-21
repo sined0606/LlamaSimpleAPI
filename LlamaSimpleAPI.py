@@ -139,7 +139,7 @@ class LlamaSimpleAPI:
         else:
             self.context = ""
 
-    def get_payload(self, user_text,temperature=0.1, max_tokens=750):
+    def get_payload_with_archive(self, user_text,temperature=0.1, max_tokens=750):
         messages_archive_payload = self.messages_archive[-5:]
         system_content = self.sysprompt
         if self.context:
@@ -157,6 +157,22 @@ class LlamaSimpleAPI:
             "temperature": temperature,
         }
 
+    def get_payload(self, user_text,temperature=0.1, max_tokens=750):
+        system_content = self.sysprompt
+        if self.context:
+            system_content = f"{self.sysprompt}\n\nContext:\n{self.context}"
+
+        messages_to_send = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_text},
+        ]
+        
+        return {
+            "model": self.model,
+            "messages": messages_to_send,
+            "temperature": temperature,
+        }
+    
     def chunking_payload(self, payload, max_tokens):
         chunk_overhead = 500
         prompt_chunking = "The following context is chunked into parts. please make a summery of the content for future use. " \
@@ -173,10 +189,8 @@ class LlamaSimpleAPI:
         chunked_contents = []
         for i in range(n_chunks):
             logging.info(f"Processing chunk {i+1}/{n_chunks}")
-            internal_api = LlamaSimpleAPI(self.sysprompt, self.url, self.model, self.sys_max_tokens)
             chunked_content = all_content[i*chars_per_chunk:(i+1)*chars_per_chunk]
-            internal_api.set_context(chunked_content)
-            answered_chunk = internal_api.ask(prompt_chunking, temperature=0.1, max_tokens=chunk_overhead-100)
+            answered_chunk = self.ask_single(f"{prompt_chunking}: Context: {chunked_content}", temperature=0.1, max_tokens=chunk_overhead-100)
             chunked_contents.append(answered_chunk)
 
         self.messages_archive = []
@@ -185,11 +199,11 @@ class LlamaSimpleAPI:
 
     def ask(self, user_text, temperature=0.1, max_tokens=750) -> str:
         self.check_api()   
-        payload = self.get_payload(user_text, temperature, max_tokens)
+        payload = self.get_payload_with_archive(user_text, temperature, max_tokens)
         if self.count_tokens(payload) > max_tokens:
             logging.info("Payload token count exceeds max_tokens, truncating message history.")
             self.chunking_payload(payload, max_tokens)
-            payload = self.get_payload(user_text, temperature, max_tokens)
+            payload = self.get_payload_with_archive(user_text, temperature, max_tokens)
 
         timeout_time = len(user_text) * 0.1 + 300
         response = requests.post(self.url_chat, json=payload, timeout=timeout_time)
@@ -210,4 +224,19 @@ class LlamaSimpleAPI:
             "role": "assistant",
             "content": assistant_text,
         })
+        return assistant_text
+
+    def ask_single(self, user_text, temperature=0.1, max_tokens=750) -> str:
+        self.check_api()   
+        payload = self.get_payload(user_text, temperature, max_tokens)
+        timeout_time = len(user_text) * 0.1 + 300
+        response = requests.post(self.url_chat, json=payload, timeout=timeout_time)
+        logging.info("POST request url: %s", self.url_chat.strip())
+        if not response.ok:
+            logging.error(f"HTTP status: {response.status_code}")
+            logging.error(f"Server response: {response.text}")
+            response.raise_for_status()
+
+        data = response.json()
+        assistant_text = data["choices"][0]["message"]["content"]
         return assistant_text
