@@ -1,4 +1,5 @@
-import logging
+#import logging
+import src.app.services.log_md as logging
 import os
 from pathlib import Path
 import requests
@@ -54,7 +55,7 @@ class LlamaSimpleAPI:
         self.check_api()
         self.get_model_info()
 
-        logging.info(f"LlamaSimpleAPI initialized:\n model: {model} \n url: {url}")
+        logging.debug(f"LlamaSimpleAPI initialized:\n model: {model} \n url: {url}")
     
     def get_model_info(self):
         try:
@@ -106,7 +107,7 @@ class LlamaSimpleAPI:
                 self.model_parameter_count = meta.get("n_params")
                 self.model_file_size = meta.get("size")
 
-                logging.info("Available models: %s", models_info)
+                logging.debug("Available models: %s", models_info)
                 return models_info
             else:
                 logging.error(f"Failed to get model info. HTTP status: {response.status_code}")
@@ -134,7 +135,7 @@ class LlamaSimpleAPI:
             for candidate in (f"{self.url}/health", f"{self.url}/v1/models"):
                 response = requests.get(candidate, timeout=10)
                 if response.ok:
-                    logging.info("Llama API is reachable via %s", candidate)
+                    logging.debug("Llama API is reachable via %s", candidate)
                     return True
 
             logging.error("Llama API reachable, but no known probe endpoint answered successfully")
@@ -215,7 +216,7 @@ class LlamaSimpleAPI:
         prompt_token_count = self.count_tokens(payload)
         available_prompt_tokens = max(1, self.sys_max_tokens - int(max_tokens))
         if prompt_token_count > available_prompt_tokens:
-            logging.info(
+            logging.debug(
                 "Payload token count %s exceeds available prompt budget %s, truncating context.",
                 prompt_token_count,
                 available_prompt_tokens,
@@ -225,7 +226,7 @@ class LlamaSimpleAPI:
 
         timeout_time = self.calculate_timeout(payload)
         response = requests.post(self.url_chat, json=payload, timeout=timeout_time)
-        logging.info("POST request url: %s", self.url_chat.strip())
+        logging.debug("POST request url: %s", self.url_chat.strip())
         if not response.ok:
             logging.error(f"HTTP status: {response.status_code}")
             logging.error(f"Server response: {response.text}")
@@ -249,7 +250,7 @@ class LlamaSimpleAPI:
         payload = self.get_payload(user_text, temperature, max_tokens)
         timeout_time = self.calculate_timeout(payload)
         response = requests.post(self.url_chat, json=payload, timeout=timeout_time)
-        logging.info("POST request url: %s", self.url_chat.strip())
+        logging.debug("POST request url: %s", self.url_chat.strip())
         if not response.ok:
             logging.error(f"HTTP status: {response.status_code}")
             logging.error(f"Server response: {response.text}")
