@@ -124,6 +124,11 @@ class LlamaSimpleAPI:
         # Rough fallback to avoid crashing when the tokenizer model is unavailable.
         return max(1, len(text) // 4)
 
+    def calculate_timeout(self, payload):
+        prompt_text = " ".join(msg["content"] for msg in payload["messages"])
+        prompt_size_bytes = len(prompt_text.encode("utf-8"))
+        return prompt_size_bytes * 0.1 + 300
+
     def check_api(self):
         try:
             for candidate in (f"{self.url}/health", f"{self.url}/v1/models"):
@@ -160,6 +165,7 @@ class LlamaSimpleAPI:
             "model": self.model,
             "messages": messages_to_send,
             "temperature": temperature,
+            "max_tokens": int(max_tokens),
         }
 
     def get_payload(self, user_text,temperature=0.1, max_tokens=750):
@@ -176,6 +182,7 @@ class LlamaSimpleAPI:
             "model": self.model,
             "messages": messages_to_send,
             "temperature": temperature,
+            "max_tokens": int(max_tokens),
         }
     
     def chunking_payload(self, payload, max_tokens):
@@ -204,12 +211,7 @@ class LlamaSimpleAPI:
 
     def ask(self, user_text, temperature=0.1, max_tokens=750) -> str:
         self.check_api()   
-<<<<<<< HEAD
         payload = self.get_payload_with_archive(user_text, temperature, max_tokens)
-        if self.count_tokens(payload) > max_tokens:
-            logging.info("Payload token count exceeds max_tokens, truncating message history.")
-=======
-        payload = self.get_payload(user_text, temperature, max_tokens)
         prompt_token_count = self.count_tokens(payload)
         available_prompt_tokens = max(1, self.sys_max_tokens - int(max_tokens))
         if prompt_token_count > available_prompt_tokens:
@@ -218,11 +220,10 @@ class LlamaSimpleAPI:
                 prompt_token_count,
                 available_prompt_tokens,
             )
->>>>>>> 2c98917 (reinforce ask funktion)
             self.chunking_payload(payload, max_tokens)
             payload = self.get_payload_with_archive(user_text, temperature, max_tokens)
 
-        timeout_time = len(user_text) * 0.1 + 300
+        timeout_time = self.calculate_timeout(payload)
         response = requests.post(self.url_chat, json=payload, timeout=timeout_time)
         logging.info("POST request url: %s", self.url_chat.strip())
         if not response.ok:
@@ -246,7 +247,7 @@ class LlamaSimpleAPI:
     def ask_single(self, user_text, temperature=0.1, max_tokens=750) -> str:
         self.check_api()   
         payload = self.get_payload(user_text, temperature, max_tokens)
-        timeout_time = len(user_text) * 0.1 + 300
+        timeout_time = self.calculate_timeout(payload)
         response = requests.post(self.url_chat, json=payload, timeout=timeout_time)
         logging.info("POST request url: %s", self.url_chat.strip())
         if not response.ok:
